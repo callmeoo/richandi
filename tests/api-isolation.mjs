@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+const base='http://127.0.0.1:8787';
+const suffix=crypto.randomUUID();
+const a='qa-a-'+suffix,b='qa-b-'+suffix;
+async function call(user,path,method='GET',data,extra={}){const r=await fetch(base+path,{method,headers:{'oai-authenticated-user-id':user,'oai-authenticated-user-email':user+'@example.test','Content-Type':'application/json',...extra},body:data?JSON.stringify(data):undefined});return {status:r.status,data:await r.json()}}
+const seeds=await call(a,'/api/cards');assert.equal(seeds.status,200);assert.equal(seeds.data.cards.length,5);
+assert.equal((await call(b,'/api/cards')).data.cards.length,5);
+const content={...seeds.data.cards[0],zh:'QA isolation test'};
+const id=crypto.randomUUID();let added=await call(a,'/api/cards','POST',{id,content});assert.equal(added.status,201);
+assert(!(await call(b,'/api/cards')).data.cards.some(c=>c.id===id));
+assert.equal((await call(b,'/api/cards','PUT',{id,content,version:1})).status,409);
+assert.equal((await call(b,'/api/reviews','POST',{id:crypto.randomUUID(),cardId:id,version:1,correct:true,mode:'exam'})).status,404);
+assert.equal((await call(a,'/api/cards','POST',{id:crypto.randomUUID(),content},{Origin:'https://untrusted.example'})).status,403);
+const review={id:crypto.randomUUID(),cardId:id,version:1,correct:false,mode:'review'};
+const concurrent=await Promise.all([call(a,'/api/reviews','POST',review),call(a,'/api/reviews','POST',review)]);assert(concurrent.every(r=>r.status===200||r.status===409));
+added=(await call(a,'/api/cards')).data.cards.find(c=>c.id===id);assert.equal(added.wrong,1);assert.equal(added.version,2);assert.equal(added.streak,0);
+assert.equal((await call(a,'/api/reviews','POST',review)).status,200);
+assert.equal((await call(a,'/api/reviews','POST',{...review,correct:true})).status,409);
+const cards=(await call(a,'/api/cards')).data.cards;
+const first=cards.find(c=>c.id==='seed-1'),second=cards.find(c=>c.id==='seed-2'),shared=crypto.randomUUID();
+await Promise.all([call(a,'/api/reviews','POST',{id:shared,cardId:first.id,version:first.version,correct:true,mode:'exam'}),call(a,'/api/reviews','POST',{id:shared,cardId:second.id,version:second.version,correct:true,mode:'exam'})]);
+const after=(await call(a,'/api/cards')).data.cards;assert.equal(after.filter(c=>c.id==='seed-1'||c.id==='seed-2').reduce((n,c)=>n+c.correct,0),1);
+assert.equal((await call(a,'/api/cards','DELETE',{id,version:added.version})).status,200);
+console.log('PASS: account isolation, foreign edit/review rejection, cross-origin rejection, concurrent idempotency, conflicting attempts.');

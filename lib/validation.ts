@@ -1,0 +1,10 @@
+import {z} from 'zod';
+import {categories} from './knowledge';
+const line=z.string().trim().max(300).default('');
+const paragraph=z.string().trim().max(6000).default('');
+const url=z.string().trim().max(2000).refine(s=>!s||s.startsWith('https://'),'请使用 HTTPS 链接').default('');
+export const contentSchema=z.object({zh:line,en:line,abbreviation:line,ipa:line,pronunciation:paragraph,category:z.enum(categories),tags:z.array(z.string().trim().min(1).max(60)).max(20),explanation:paragraph,related:z.array(z.string().trim().min(1).max(300)).max(20),scenario:paragraph,example:paragraph,image:url,question:paragraph,answer:paragraph,source:url}).refine(c=>c.zh||c.en,{message:'请至少填写中文或 English'});
+export const createSchema=z.object({id:z.string().uuid(),content:contentSchema});
+export const updateSchema=createSchema.extend({id:z.string().min(1).max(100),version:z.number().int().positive()});
+export const removeSchema=z.object({id:z.string().min(1).max(100),version:z.number().int().positive()});
+export const reviewSchema=z.object({id:z.string().uuid(),cardId:z.string().min(1).max(100),version:z.number().int().positive(),correct:z.boolean(),mode:z.enum(['review','exam']),response:z.string().max(6000).default('')});
